@@ -5,32 +5,39 @@ import hashlib
 import os
 import json
 
-# Simple file-based cache
-CACHE_DIR = 'cache'
+# Configuration
+CACHE_DIR = 'cache'         # Directory for cached responses
+RETRY_ATTEMPTS = 3          # Number of retries per URL
+TIMEOUT_SECONDS = 10        # Request timeout
+BACKOFF_BASE = 2            # Exponential backoff base
+
+# Ensure cache directory exists
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 async def fetch(session, url):
     # Generate cache key
     key = hashlib.md5(url.encode()).hexdigest()
     cache_path = os.path.join(CACHE_DIR, f"{key}.json")
-    # Return cached response if recent
+
+    # Return cached response if available
     if os.path.exists(cache_path):
         with open(cache_path) as f:
             return json.load(f)
 
-    for attempt in range(3):
+    # Attempt to fetch with retries and exponential backoff
+    for attempt in range(RETRY_ATTEMPTS):
         try:
-            async with async_timeout.timeout(10):
+            async with async_timeout.timeout(TIMEOUT_SECONDS):
                 async with session.get(url) as response:
                     text = await response.text()
-                    # Basic parse: pretend JSON or wrap text
                     result = {'url': url, 'content': text}
                     # Cache the result
                     with open(cache_path, 'w') as f:
                         json.dump(result, f)
                     return result
-        except Exception as e:
-            await asyncio.sleep(2 ** attempt)
+        except Exception:
+            await asyncio.sleep(BACKOFF_BASE ** attempt)
+
     return {'url': url, 'error': 'Failed after retries'}
 
 async def scrape(urls):
